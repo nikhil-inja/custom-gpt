@@ -1,57 +1,72 @@
 # My GPT — Built from Scratch
 
-> Assembled from the NeetCode ML course on [NeetCode.io](https://neetcode.io)
-> Built by **Nikhil Inja** on June 14, 2026
+> Assembled from the NeetCode ML course on [NeetCode.io](https://neetcode.io), then extended with a CUDA training pipeline and custom Triton kernels.
 
-Every file in this project is code I wrote and submitted while completing the NeetCode ML course.
-The problems progressively build from gradient descent fundamentals all the way to a working GPT.
+Course `Solution` files are preserved. Training + kernels live in new modules beside them.
 
 ## Project Structure
 
 ```
-model/          Attention, Transformer, GPT architecture
-  attention.py             Self-attention head
-  multi_head_attention.py  Multi-headed attention
-  transformer.py           Transformer block
-  gpt.py                   GPT model
-  normalization.py         Layer normalization
-  batch_normalization.py   Batch normalization
-  rms_normalization.py     RMS normalization
-  embeddings.py            Word embeddings
-  positional_encoding.py   Positional encoding
-  kv_cache.py              KV-Cache for fast inference
-  grouped_query_attention.py  Grouped query attention
-
-data/           Data pipeline
-  tokenizer.py                BPE tokenizer
-  vocab.py                    Character-level vocabulary
-  loader.py                   Batched training data loader
-  dataset.py                  GPT dataset preparation
-  nlp_preprocessing.py        NLP preprocessing
-  tokenizer_utils.py          Tokenization edge cases
-
-train.py        GPT training loop
-generate.py     Text generation
-
-foundations/    Neural network primitives built from scratch
-  neuron.py, backprop.py, mlp.py, activations.py, loss.py,
-  training_loop.py, dead_relu_detector.py, ...
+model/
+  gpt.py                   Course GPT (grader artifacts)
+  gpt_train.py             Production GPT (fused QKV, device-safe, triton|torch backends)
+data/
+  shakespeare.py           Tiny Shakespeare download, char vocab, batching
+  ...                      Course data exercises
+kernels/
+  softmax.py               Triton softmax
+  layernorm.py             Triton LayerNorm (fwd + bwd)
+  attention.py             Flash-style fused causal attention (fwd + bwd)
+  benchmarks.py            Timing / memory / A/B loss
+scripts/
+  train_shakespeare.py     Train on Shakespeare
+  generate.py              Sample from a checkpoint
+tests/
+  test_kernels.py          Correctness vs PyTorch
+foundations/               Course NN primitives
+BENCHMARKS.md              Measured kernel results
 ```
 
-## Quick Start
+## Setup
 
 ```bash
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-python train.py
-python generate.py
 ```
 
-## Course
+Requires a CUDA GPU for Triton backends. PyTorch attention training also runs on CPU.
 
-This project was built by completing the [NeetCode ML Course](https://neetcode.io/practice?tab=coreSkills&topic=Machine+Learning):
-- Math Foundations (gradient descent, activations, loss functions)
-- Neural Networks from scratch (neuron, backprop, MLP)
-- PyTorch fundamentals
-- NLP pipeline (embeddings, tokenization, attention)
-- Transformer architecture
-- GPT model + text generation
+## Train (Shakespeare)
+
+```bash
+# Baseline (PyTorch attention + LayerNorm)
+python scripts/train_shakespeare.py --max-steps 2000
+
+# Fused Triton attention (recommended Triton path)
+python scripts/train_shakespeare.py --attn triton --norm torch --max-steps 2000
+
+# Full Triton attention + LayerNorm
+python scripts/train_shakespeare.py --attn triton --norm triton --max-steps 2000
+```
+
+Defaults: `n_layer=4`, `n_head=4`, `n_embd=128`, `block_size=128` (~0.82M params). Checkpoints land in `checkpoints/shakespeare_best.pt`.
+
+## Generate
+
+```bash
+python scripts/generate.py --ckpt checkpoints/shakespeare_best.pt --prompt "ROMEO:"
+```
+
+## Kernels & tests
+
+```bash
+pytest tests/test_kernels.py -v
+python kernels/benchmarks.py --seq 128 256 512
+```
+
+See [BENCHMARKS.md](BENCHMARKS.md) for measured latency/memory vs naive attention.
+
+## Course archive
+
+Original NeetCode entrypoints (`train.py`, `generate.py`, `model/gpt.py`, …) remain as submitted course solutions and are not used by the training scripts above.
